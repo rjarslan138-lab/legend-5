@@ -1,0 +1,282 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum PlanTier {
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum UserRole {
+  OWNER
+  STOREKEEPER
+  PRODUCTION
+  SALES
+}
+
+enum CustomerType {
+  SHOP
+  WHOLESALER
+}
+
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  PACKED
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+}
+
+enum PaymentMethod {
+  CASH
+  BANK
+  JAZZCASH
+  EASYPAISA
+  CHEQUE
+}
+
+enum MovementType {
+  RECEIVE
+  TRANSFER
+  SALE
+  RETURN
+  DAMAGED
+  ADJUSTMENT
+}
+
+model Organization {
+  id           String        @id @default(uuid())
+  name         String
+  plan         PlanTier      @default(STARTER)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  users        User[]
+  warehouses   Warehouse[]
+  fabricBatches FabricBatch[]
+  products     Product[]
+  productVariants ProductVariant[]
+  customers    Customer[]
+  orders       Order[]
+  stockMovements StockMovement[]
+  payments     Payment[]
+}
+
+model User {
+  id             String        @id @default(uuid())
+  organizationId String
+  name           String
+  email          String        @unique
+  passwordHash   String
+  role           UserRole      @default(SALES)
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ordersCreated  Order[]       @relation("OrderCreatedBy")
+  movementsCreated StockMovement[] @relation("MovementCreatedBy")
+}
+
+model Warehouse {
+  id             String        @id @default(uuid())
+  organizationId String
+  name           String
+  address        String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  locations      Location[]
+}
+
+model Location {
+  id             String          @id @default(uuid())
+  warehouseId    String
+  code           String          // e.g. "A-03 / Rack 7"
+  description    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  warehouse      Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  stockItems     StockItem[]
+  movementsFrom  StockMovement[] @relation("MovementFromLocation")
+  movementsTo    StockMovement[] @relation("MovementToLocation")
+
+  @@unique([warehouseId, code])
+}
+
+model FabricBatch {
+  id             String           @id @default(uuid())
+  organizationId String
+  batchCode      String           // e.g. "B-2409"
+  fabricType     String           // e.g. "Cotton Terry", "Fleece", "Jersey"
+  color          String           // e.g. "Navy Blue", "Heather Grey"
+  supplier       String           // e.g. "Kohinoor Mills", "Sitara Textiles"
+  rollCount      Int              @default(1)
+  weightKg       Float            // e.g. 150.5
+  lengthMeters   Float?           // e.g. 500
+  costPerUnit    Float            // PKR per kg or meter
+  receivedAt     DateTime         @default(now())
+  wastageKg      Float            @default(0)
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  variants       ProductVariant[]
+
+  @@unique([organizationId, batchCode])
+}
+
+model Product {
+  id             String           @id @default(uuid())
+  organizationId String
+  name           String           // e.g. "Kids Fleece Hoodie"
+  skuPrefix      String           // e.g. "KFH"
+  category       String           // e.g. "Kids", "Men", "Women"
+  description    String?
+  basePrice      Float            // PKR base price
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  variants       ProductVariant[]
+}
+
+model ProductVariant {
+  id             String          @id @default(uuid())
+  organizationId String
+  productId      String
+  sku            String          // e.g. "92204" or "KFH-NAVY-0-5Y"
+  size           String          // e.g. "0-5Y", "6-10Y", "M", "L"
+  color          String          // e.g. "Navy Blue"
+  fabricBatchId  String?         // Link for raw fabric traceability
+  price          Float           // Wholesale / retail price
+  costPrice      Float           // Estimated manufacturing cost
+  reorderLevel   Int             @default(20)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  fabricBatch    FabricBatch?    @relation(fields: [fabricBatchId], references: [id], onDelete: SetNull)
+  stockItems     StockItem[]
+  stockMovements StockMovement[]
+  orderItems     OrderItem[]
+
+  @@unique([organizationId, sku])
+}
+
+model StockItem {
+  id          String         @id @default(uuid())
+  variantId   String
+  locationId  String
+  quantity    Int            @default(0)
+  updatedAt   DateTime       @updatedAt
+
+  variant     ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  location    Location       @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([variantId, locationId])
+}
+
+model StockMovement {
+  id             String         @id @default(uuid())
+  organizationId String
+  variantId      String
+  fromLocationId String?
+  toLocationId   String?
+  quantity       Int
+  type           MovementType
+  reference      String?        // e.g. Order ID, Receive note, Adjustment reason
+  createdBy      String?
+  createdAt      DateTime       @default(now())
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  variant        ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  fromLocation   Location?      @relation("MovementFromLocation", fields: [fromLocationId], references: [id], onDelete: SetNull)
+  toLocation     Location?      @relation("MovementToLocation", fields: [toLocationId], references: [id], onDelete: SetNull)
+  user           User?          @relation("MovementCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+}
+
+model Customer {
+  id             String        @id @default(uuid())
+  organizationId String
+  name           String        // e.g. "Al-Karam Garments", "Lahore Wholesale Center"
+  type           CustomerType  @default(SHOP)
+  phone          String
+  city           String        // e.g. "Faisalabad", "Lahore", "Karachi"
+  address        String?
+  creditLimit    Float         @default(100000)
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  orders         Order[]
+}
+
+model Order {
+  id             String        @id @default(uuid())
+  organizationId String
+  orderNo        String        // e.g. "SHOP-1842"
+  orderSeq       Int           @default(1)
+  customerId     String
+  status         OrderStatus   @default(DRAFT)
+  paymentStatus  PaymentStatus @default(PENDING)
+  totalAmount    Float         @default(0)
+  paidAmount     Float         @default(0)
+  deliveryDate   DateTime?
+  createdBy      String?
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer       Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user           User?         @relation("OrderCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  items          OrderItem[]
+  payments       Payment[]
+
+  @@unique([organizationId, orderNo])
+}
+
+model OrderItem {
+  id         String         @id @default(uuid())
+  orderId    String
+  variantId  String
+  quantity   Int
+  unitPrice  Float
+  lineTotal  Float
+
+  order      Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant    ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  organizationId String
+  orderId        String
+  amount         Float
+  method         PaymentMethod @default(CASH)
+  receivedAt     DateTime      @default(now())
+  note           String?
+  createdAt      DateTime      @default(now())
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order          Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
