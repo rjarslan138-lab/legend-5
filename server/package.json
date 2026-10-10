@@ -5,7 +5,8 @@
   "description": "GarmentFlow Express REST API & Prisma Backend",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
+    "postinstall": "prisma generate",
     "start": "node dist/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
